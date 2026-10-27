@@ -108,6 +108,7 @@ extension PlatformColor {
 enum Radius {
     static let card: CGFloat = 8
     static let control: CGFloat = 6
+    static let button: CGFloat = 6
 }
 
 enum Typeface {

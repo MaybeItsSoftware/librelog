@@ -53,7 +53,7 @@ struct CalendarView: View {
             .frame(maxWidth: .infinity)
         }
         .background(Color.paper)
-        .overlay(alignment: .bottomTrailing) { NewEntryButton(date: selected) }
+        .overlay(alignment: .bottomTrailing) { NewEntryButton(date: selected).padding(20) }
         .navigationTitle("Calendar")
         .sensoryFeedback(.selection, trigger: selected)
         .sensoryFeedback(.selection, trigger: month)

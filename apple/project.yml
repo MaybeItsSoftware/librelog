@@ -70,7 +70,7 @@ targets:
         LSApplicationCategoryType: public.app-category.lifestyle
         # Sync encrypts entries end to end (XChaCha20-Poly1305): standard
         # algorithms, declared once in App Store Connect.
-        ITSAppUsesNonExemptEncryption: true
+        ITSAppUsesNonExemptEncryption: false
         NSCameraUsageDescription: LibreLog uses the camera to take a photo for a day in your journal, and to scan another device's pairing code.
         NSPhotoLibraryUsageDescription: LibreLog shows the photos you took on a day so you can add them to it. Photos you add stay on your devices; only a tiny blurred preview is synced.
         NSPhotoLibraryAddUsageDescription: LibreLog saves photos you take for a day to your library, so your other devices can show them through iCloud Photos.

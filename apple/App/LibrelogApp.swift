@@ -28,12 +28,14 @@ struct LibrelogApp: App {
                 .task { app.subscriptions.start() }
                 .task { await app.refreshCalendar() }
                 .task { await app.resolvePhotoSourceRefs() }
+                .task { await app.reminders.scheduleAll() }
                 .onOpenURL { url in Task { await app.sync.handle(url: url) } }
                 .onChange(of: phase) { _, now in
                     if now == .active {
                         Task { await app.sync.syncNow() }
                         Task { await app.refreshCalendar() }
                         Task { await app.resolvePhotoSourceRefs() }
+                        Task { await app.reminders.scheduleAll() }
                     }
                 }
         }

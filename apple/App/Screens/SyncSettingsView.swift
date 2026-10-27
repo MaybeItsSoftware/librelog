@@ -21,6 +21,7 @@ struct SyncSettingsView: View {
         let sync = app.sync
         Form {
             AppearanceSection()
+            RemindersSection()
             PrivacySection()
             switch sync.phase {
             case .off: signIn

@@ -46,7 +46,13 @@ struct JournalView: View {
         // The day itself is the heading; a bar above it is dead space.
         .toolbar(.hidden, for: .navigationBar)
         #endif
-        .overlay(alignment: .bottomTrailing) { NewEntryButton(date: nil) }
+        .overlay(alignment: .bottomTrailing) {
+            HStack(spacing: 12) {
+                photoButton
+                NewEntryButton(date: nil)
+            }
+            .padding(20)
+        }
         .sheet(isPresented: $addingPhoto) { PhotoChooser(date: Day.today) }
         .task(id: app.revision) { await reload() }
     }
@@ -74,32 +80,31 @@ struct JournalView: View {
         .listRowSeparator(.hidden)
     }
 
-    /// The rule under today's heading, carrying an unworded add-photo
-    /// button: sitting between the heading and today's entries, it can
-    /// only mean today.
+    /// The rule under today's heading.
     private var todayRule: some View {
-        HStack(spacing: 0) {
-            rule.frame(width: 12)
-            Button { addingPhoto = true } label: {
-                Image(systemName: "photo.badge.plus")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Color.muted)
-                    .padding(.horizontal, 10)
-                    .frame(minWidth: 44, minHeight: 44)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.pressable)
-            .accessibilityLabel("Add photo to today")
-            .help("Add photo to today")
-            rule
-        }
-        .listRowBackground(Color.paper)
-        .listRowSeparator(.hidden)
-        .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+        rule
+            .listRowBackground(Color.paper)
+            .listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
     }
 
     private var rule: some View {
         Rectangle().fill(Color.hairline).frame(height: 1)
+    }
+
+    private var photoButton: some View {
+        Button { addingPhoto = true } label: {
+            Image(systemName: "photo.badge.plus")
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(Color.ink)
+                .frame(width: 44, height: 44)
+                .background(Color.raised, in: RoundedRectangle(cornerRadius: Radius.button))
+                .overlay(RoundedRectangle(cornerRadius: Radius.button).strokeBorder(Color.hairline))
+                .contentShape(RoundedRectangle(cornerRadius: Radius.button))
+        }
+        .buttonStyle(.pressable(scale: 0.92))
+        .accessibilityLabel("Add photo to today")
+        .help("Add photo to today")
     }
 
     private var todayEntries: [EntrySummary] {
@@ -246,7 +251,6 @@ struct NewEntryButton: View {
                 .contentShape(RoundedRectangle(cornerRadius: Radius.card))
         }
         .buttonStyle(.pressable(scale: 0.92))
-        .padding(20)
         .accessibilityLabel(date.map { $0 == Day.today ? "New entry" : "New entry on \(Day.title($0))" } ?? "New entry")
         .accessibilityAction(named: "New entry on another day") { choosingDay = true }
         .keyboardShortcut("n", modifiers: .command)

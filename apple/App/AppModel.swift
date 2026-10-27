@@ -18,6 +18,7 @@ final class AppModel {
     let sync: SyncEngine
     let subscriptions: SyncSubscription
     let calendar = DeviceCalendar()
+    let reminders: RemindersManager
     /// Whether the device calendar can be read; asked on first use only.
     private(set) var calendarAccess: DeviceCalendar.Access
     private var calendarRefreshedAt: Date?
@@ -30,17 +31,30 @@ final class AppModel {
     /// Counts entries made here, so the UI can acknowledge each one.
     private(set) var created = 0
 
-    init(store: Store) {
+    init(store: Store, remindersManager: RemindersManager? = nil) {
         self.store = store
         self.sync = SyncEngine(store: store)
         self.subscriptions = SyncSubscription(sync: sync)
         self.calendarAccess = calendar.access
+        let rm = remindersManager ?? RemindersManager()
+        self.reminders = rm
+        rm.setStatusProvider { [weak self] in
+            guard let self else { return (false, 0, 0) }
+            return try await self.run { store in
+                let today = Day.today
+                let entries = try store.day(date: today, journalId: nil)
+                let stats = try store.stats(today: today)
+                let onThisDay = try store.onThisDay(date: today)
+                return (!entries.isEmpty, Int(stats.currentStreak), onThisDay.count)
+            }
+        }
         // Read once before the first frame, so the theme doesn't flash.
         if let a = try? Appearance.load(from: store) { AppearanceModel.shared.apply(a) }
         sync.onChange = { [weak self] in
             self?.changed()
             // Appearance is synced, so a pull may have changed it.
             Task { await self?.loadAppearance() }
+            Task { await self?.reminders.scheduleAll() }
         }
     }
 
@@ -73,6 +87,7 @@ final class AppModel {
             try await run(work)
             changed()
             sync.schedulePush()
+            Task { await reminders.scheduleAll() }
         } catch {
             lastError = error.localizedDescription
         }
@@ -109,6 +124,7 @@ final class AppModel {
         guard (try? await run({ try $0.discardIfEmpty(id: id) })) == true else { return false }
         changed()
         sync.schedulePush()
+        Task { await reminders.scheduleAll() }
         return true
     }
 
@@ -177,6 +193,7 @@ final class AppModel {
             sync.schedulePush()
             openEntryID = entry.id
             created &+= 1
+            Task { await reminders.scheduleAll() }
             return entry.id
         } catch {
             lastError = error.localizedDescription
