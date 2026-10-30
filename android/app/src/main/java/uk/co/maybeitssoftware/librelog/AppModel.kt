@@ -26,6 +26,9 @@ import kotlinx.coroutines.withContext
 import uk.co.maybeitssoftware.librelog.billing.SyncSubscription
 import uk.co.maybeitssoftware.librelog.calendar.DeviceCalendar
 import uk.co.maybeitssoftware.librelog.lock.LockedNoteDraft
+import uk.co.maybeitssoftware.librelog.reminders.JournalToday
+import uk.co.maybeitssoftware.librelog.reminders.Reminder
+import uk.co.maybeitssoftware.librelog.reminders.ReminderAlarms
 import uk.co.maybeitssoftware.librelog.sync.KeystoreSecretStore
 import uk.co.maybeitssoftware.librelog.sync.RealtimeChannel
 import uk.co.maybeitssoftware.librelog.sync.SupabaseClient
@@ -73,6 +76,8 @@ class AppModel(
     val calendar: DeviceCalendar,
     /** Buying sync on Google Play (docs/billing.md). */
     val billing: SyncSubscription,
+    /** Settings → Reminders (docs/reminders.md). */
+    val reminders: ReminderAlarms,
 ) {
     /** Bumped after any write or merged pull, so screens reload. */
     var revision by mutableIntStateOf(0)
@@ -98,7 +103,33 @@ class AppModel(
         sync.onChange = {
             changed()
             scope.launch { reloadAppearance() }
+            // A pull may have brought today's entry from another device.
+            scope.launch { scheduleReminders() }
         }
+    }
+
+    /** Today as the reminders see it; nothing written when the journal can't be read. */
+    private suspend fun journalToday(): JournalToday = runCatching {
+        run { store ->
+            val today = Day.today
+            JournalToday(
+                hasEntriesToday = store.day(today, null).isNotEmpty(),
+                streak = store.stats(today).currentStreak.toInt(),
+                onThisDayCount = store.onThisDay(today).size,
+            )
+        }
+    }.getOrDefault(JournalToday(hasEntriesToday = false, streak = 0, onThisDayCount = 0))
+
+    /** Sets every reminder's next alarm: after a write, a pull, a settings change and at launch. */
+    suspend fun scheduleReminders() {
+        reminders.schedule(journalToday())
+    }
+
+    /** A reminder's alarm went off: show it if the day still calls for it, then set the next. */
+    suspend fun fireReminder(reminder: Reminder) {
+        val today = journalToday()
+        reminders.post(reminder, today)
+        reminders.schedule(today)
     }
 
     suspend fun reloadAppearance() {
@@ -126,6 +157,7 @@ class AppModel(
             run(work)
             changed()
             sync.schedulePush()
+            scheduleReminders()
         } catch (e: Exception) {
             lastError = e.message
         }
@@ -172,6 +204,7 @@ class AppModel(
             val entry = run { it.createEntry(null, date, time) }
             changed()
             sync.schedulePush()
+            scheduleReminders()
             entry.id
         } catch (e: Exception) {
             lastError = e.message
@@ -198,7 +231,9 @@ class AppModel(
                     RealtimeChannel(Backend.URL, Backend.PUBLISHABLE_KEY, "user:$user", client, scope, onPing)
                 },
             )
-            val model = AppModel(store, sync, scope, DeviceCalendar(app), SyncSubscription(app, sync, scope))
+            val model = AppModel(
+                store, sync, scope, DeviceCalendar(app), SyncSubscription(app, sync, scope), ReminderAlarms(app),
+            )
             // Read before the first frame, so the chosen theme never flashes
             // in after the default one. Four indexed reads.
             runCatching { Appearance.from { store.setting(it) } }.onSuccess { model.appearance = it }

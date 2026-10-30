@@ -106,6 +106,7 @@ fun SettingsScreen(app: AppModel) {
     ) {
         Text("Settings", style = Typeface.title, color = t.ink, modifier = Modifier.padding(top = 24.dp, bottom = 4.dp))
         AppearanceSection(app)
+        RemindersSection(app)
         PrivacySection(app)
         when (sync.phase) {
             SyncEngine.Phase.Off -> SignIn(app)

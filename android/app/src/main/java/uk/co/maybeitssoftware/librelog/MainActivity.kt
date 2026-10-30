@@ -55,6 +55,7 @@ class MainActivity : ComponentActivity() {
             model.billing.checkOnLaunch()
         }
         model.scope.launch { model.refreshCalendar() }
+        model.scope.launch { model.scheduleReminders() }
     }
 
     /** The sign-in email's link: librelog://auth#access_token=… */
