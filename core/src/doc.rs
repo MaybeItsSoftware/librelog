@@ -129,13 +129,21 @@ pub fn excerpt(blocks: &[Block], max: usize) -> String {
 }
 
 /// [`excerpt`] for text that's already plain, such as `entries.body_text`.
+/// Line breaks survive, so the list shows a day's lines as written; runs of
+/// spaces inside a line close up, and blank lines go so they don't spend the
+/// row's few lines on nothing.
 pub fn excerpt_text(text: &str, max: usize) -> String {
-    let flat: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let flat: String = text
+        .lines()
+        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
     if flat.chars().count() <= max {
         return flat;
     }
     let cut: String = flat.chars().take(max).collect();
-    match cut.rfind(' ') {
+    match cut.rfind([' ', '\n']) {
         Some(i) if i > max / 2 => format!("{}…", &cut[..i]),
         _ => format!("{cut}…"),
     }
@@ -322,6 +330,14 @@ mod tests {
     fn excerpt_cuts_on_a_word_boundary() {
         let e = excerpt(&[p("The quick brown fox jumps over the lazy dog")], 20);
         assert_eq!(e, "The quick brown fox…");
+    }
+
+    #[test]
+    fn excerpt_keeps_line_breaks_but_not_blank_lines() {
+        let e = excerpt(&[p("Woke early."), p(""), p("  Went   for a run. "), p("Rain later.")], 160);
+        assert_eq!(e, "Woke early.\nWent for a run.\nRain later.");
+        assert_eq!(excerpt_text("one\r\n\r\ntwo", 160), "one\ntwo");
+        assert_eq!(excerpt_text("first line\nsecond", 14), "first line…");
     }
 
     #[test]
