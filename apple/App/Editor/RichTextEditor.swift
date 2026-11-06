@@ -153,6 +153,30 @@ private final class EditorTextView: NSTextView, EditorHost {
         set { typingAttributes = newValue }
     }
 
+    // Always at least as tall as the visible area, so a click anywhere in the
+    // editor — not just on existing lines — lands in the text view.
+    private var clipObserver: NSObjectProtocol?
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        if let clipObserver { NotificationCenter.default.removeObserver(clipObserver) }
+        clipObserver = nil
+        guard let clip = superview as? NSClipView else { return }
+        clip.postsFrameChangedNotifications = true
+        clipObserver = NotificationCenter.default.addObserver(
+            forName: NSView.frameDidChangeNotification, object: clip, queue: .main
+        ) { [weak self] _ in MainActor.assumeIsolated { self?.fillClip() } }
+        fillClip()
+    }
+
+    private func fillClip() {
+        guard let clip = superview as? NSClipView else { return }
+        let height = clip.bounds.height
+        guard minSize.height != height else { return }
+        minSize = NSSize(width: 0, height: height)
+        if frame.height < height { setFrameSize(NSSize(width: frame.width, height: height)) }
+    }
+
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let index = characterIndexForInsertion(at: point)
@@ -193,6 +217,15 @@ private struct PlatformTextView: NSViewRepresentable {
         let old = scroll.documentView as! NSTextView
         let tv = EditorTextView(frame: old.frame, textContainer: old.textContainer)
         tv.controller = controller
+        // scrollableTextView() sized the view it made; the replacement has to
+        // be told the same, or it stays at its initial zero frame and typed
+        // text has nowhere to draw.
+        tv.minSize = .zero
+        tv.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        tv.isVerticallyResizable = true
+        tv.isHorizontallyResizable = false
+        tv.textContainer?.widthTracksTextView = true
+        tv.textContainer?.containerSize = NSSize(width: scroll.contentSize.width, height: .greatestFiniteMagnitude)
         tv.drawsBackground = false
         tv.isRichText = true
         tv.allowsUndo = true
