@@ -70,57 +70,85 @@ platform :android do
 end
 
 platform :ios do
-  desc "Fetch (or, with readonly:false, create) the App Store signing profile"
-  lane :certificates do |opts|
-    match(type: "appstore", app_identifier: APP_ID, api_key: asc_key, readonly: opts[:readonly] != false)
+  # The Apple builds share one bundle id and one App Store Connect record
+  # (universal purchase): "ios" archives for iPhone and iPad, "macos" for the
+  # Mac App Store. Each has its own match profile; the Mac one also needs the
+  # Mac Installer Distribution certificate, which signs the uploaded .pkg.
+  APPLE_PLATFORMS = %w[ios macos].freeze
+
+  def apple_platform(opts)
+    platform = (opts[:platform] || "ios").to_s
+    UI.user_error!("platform: must be ios or macos (got #{platform.inspect})") unless APPLE_PLATFORMS.include?(platform)
+    platform
   end
 
-  desc "Archive the iOS app and upload it to TestFlight"
-  lane :internal do |opts|
-    key = asc_key
-    setup_ci if ENV["CI"]
-    match(type: "appstore", app_identifier: APP_ID, api_key: key, readonly: opts[:readonly] != false)
-    sh("cd #{ROOT} && scripts/build-apple.sh && cd apple && xcodegen -q")
-    build_number = opts[:build_number] || (latest_testflight_build_number(api_key: key, app_identifier: APP_ID, initial_build_number: 0) + 1)
-    build_app(
-      project: "#{ROOT}/apple/Librelog.xcodeproj", scheme: "Librelog",
-      destination: "generic/platform=iOS", export_method: "app-store",
-      output_directory: "#{ROOT}/apple/build", clean: true,
-      xcargs: "CURRENT_PROJECT_VERSION=#{build_number} CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=#{TEAM_ID} " \
-              "CODE_SIGN_IDENTITY='Apple Distribution' PROVISIONING_PROFILE_SPECIFIER='match AppStore #{APP_ID}'",
-      export_options: { provisioningProfiles: { APP_ID => "match AppStore #{APP_ID}" } },
-    )
-    upload_to_testflight(api_key: key, skip_waiting_for_build_processing: true) unless opts[:upload] == false
+  def apple_profile(platform)
+    platform == "macos" ? "match AppStore #{APP_ID} macos" : "match AppStore #{APP_ID}"
   end
 
-  # Called by .github/workflows/tramline-ios.yml. Tramline owns the version:
-  # it passes both numbers and finds the build in App Store Connect by its
-  # build number, so nothing here reads or bumps TestFlight's counter.
-  desc "Archive at Tramline's version_name/version_code and upload to TestFlight"
-  lane :tramline do |opts|
-    name = opts[:version_name].to_s
-    code = opts[:version_code].to_s
-    UI.user_error!("version_name: must look like 1.2.3 (got #{name.inspect})") unless name.match?(/\A\d+(\.\d+){0,2}\z/)
-    UI.user_error!("version_code: must be a positive integer (got #{code.inspect})") unless code.match?(/\A[1-9]\d*\z/)
-
-    key = asc_key
-    setup_ci if ENV["CI"]
+  def apple_certs(platform, key, readonly:)
+    certs = { type: "appstore", platform: platform, app_identifier: APP_ID, api_key: key, readonly: readonly }
+    certs[:additional_cert_types] = ["mac_installer_distribution"] if platform == "macos"
     # CI and local runs both clone the certs repo over SSH (CI via the
     # MATCH_GIT_SSH_KEY deploy key); MATCH_GIT_URL overrides the Matchfile if set.
-    certs = { type: "appstore", app_identifier: APP_ID, api_key: key, readonly: true }
     certs[:git_url] = ENV["MATCH_GIT_URL"] unless ENV["MATCH_GIT_URL"].to_s.empty?
     match(**certs)
+  end
+
+  # Builds the Rust core, archives at the given numbers and, unless
+  # upload:false, sends it to TestFlight. A version name of nil keeps
+  # project.yml's MARKETING_VERSION.
+  def apple_release(platform:, name:, number:, upload: true)
+    key = asc_key
+    setup_ci if ENV["CI"]
+    apple_certs(platform, key, readonly: true)
     sh("cd #{ROOT} && scripts/build-apple.sh && cd apple && xcodegen -q")
+    profile = apple_profile(platform)
+    version = name ? "MARKETING_VERSION=#{name} " : ""
     build_app(
       project: "#{ROOT}/apple/Librelog.xcodeproj", scheme: "Librelog",
-      destination: "generic/platform=iOS", export_method: "app-store",
-      output_directory: "#{ROOT}/apple/build", clean: true,
-      xcargs: "MARKETING_VERSION=#{name} CURRENT_PROJECT_VERSION=#{code} " \
+      destination: "generic/platform=#{platform == 'macos' ? 'macOS' : 'iOS'}",
+      export_method: "app-store",
+      output_directory: "#{ROOT}/apple/build/#{platform}", clean: true,
+      xcargs: "#{version}CURRENT_PROJECT_VERSION=#{number} " \
               "CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=#{TEAM_ID} " \
-              "CODE_SIGN_IDENTITY='Apple Distribution' PROVISIONING_PROFILE_SPECIFIER='match AppStore #{APP_ID}'",
-      export_options: { provisioningProfiles: { APP_ID => "match AppStore #{APP_ID}" } },
+              "CODE_SIGN_IDENTITY='Apple Distribution' PROVISIONING_PROFILE_SPECIFIER='#{profile}'",
+      export_options: { provisioningProfiles: { APP_ID => profile } },
     )
-    upload_to_testflight(api_key: key, app_identifier: APP_ID, skip_waiting_for_build_processing: true)
+    return unless upload
+    if platform == "macos"
+      upload_to_testflight(api_key: key, app_identifier: APP_ID, app_platform: "osx",
+                           pkg: lane_context[SharedValues::PKG_OUTPUT_PATH],
+                           skip_waiting_for_build_processing: true)
+    else
+      upload_to_testflight(api_key: key, app_identifier: APP_ID, skip_waiting_for_build_processing: true)
+    end
+  end
+
+  desc "Fetch (or, with readonly:false, create) the App Store signing for platform:ios (default) or platform:macos"
+  lane :certificates do |opts|
+    apple_certs(apple_platform(opts), asc_key, readonly: opts[:readonly] != false)
+  end
+
+  desc "Archive for platform:ios (default) or platform:macos at the next TestFlight build number and upload it"
+  lane :internal do |opts|
+    platform = apple_platform(opts)
+    number = opts[:build_number] || (latest_testflight_build_number(
+      api_key: asc_key, app_identifier: APP_ID, platform: platform == "macos" ? "osx" : "ios", initial_build_number: 0,
+    ) + 1)
+    apple_release(platform: platform, name: opts[:version_name], number: number, upload: opts[:upload] != false)
+  end
+
+  # Called by .github/workflows/apple-testflight.yml, which picks the numbers:
+  # version_name is CFBundleShortVersionString, build_number CFBundleVersion
+  # (the same UTC-date scheme as Android's version codes).
+  desc "Archive platform:ios or platform:macos at version_name/build_number and upload it to TestFlight"
+  lane :release do |opts|
+    name = opts[:version_name].to_s
+    number = opts[:build_number].to_s
+    UI.user_error!("version_name: must look like 1.2.3 (got #{name.inspect})") unless name.match?(/\A\d+(\.\d+){0,2}\z/)
+    UI.user_error!("build_number: must be a positive integer (got #{number.inspect})") unless number.match?(/\A[1-9]\d*\z/)
+    apple_release(platform: apple_platform(opts), name: name, number: number)
   end
 
   desc "Upload the App Store listing: text, review notes and screenshots (no build, no submission)"

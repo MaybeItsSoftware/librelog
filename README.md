@@ -108,7 +108,8 @@ Fastlane lanes in `fastlane/Fastfile`; credentials come from the environment
 # 90 and up so they stay clear of the workflow's 01, 02, …; after one, give
 # any later Actions run that day an explicit version_code above it.
 bundle exec fastlane android internal version_code:$(date -u +%Y%m%d)90 version_name:0.1.1
-bundle exec fastlane ios internal   # TestFlight (next build number)
+bundle exec fastlane ios internal                  # iPhone/iPad TestFlight (next build number)
+bundle exec fastlane ios internal platform:macos   # Mac TestFlight
 ```
 
 Or from GitHub: Actions → **Android · Play internal** → Run workflow, with a
@@ -118,6 +119,14 @@ ones on Play already are date-based (the last was 2026102002), so never use a
 small number like `2`. It goes straight to internal testers; choose `draft`
 to hold it for a manual rollout in Play Console. It needs `PLAY_STORE_SERVICE_ACCOUNT_JSON`, the same Play key as the
 Takt repo.
+
+For Apple: Actions → **Apple · TestFlight** → Run workflow, with a version and
+`both`, `ios` or `macos`. A blank build number uses the same date scheme as
+Android, so build numbers keep going up past the last one (2026103101). It
+needs `MATCH_PASSWORD`, `MATCH_GIT_SSH_KEY` and the three
+`APP_STORE_CONNECT_API_KEY_*` secrets. The Mac build signs with its own match
+profile and the Mac Installer Distribution certificate; create them once with
+`bundle exec fastlane ios certificates platform:macos readonly:false`.
 
 ## Open source and hosted sync
 

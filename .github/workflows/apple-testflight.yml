@@ -1,0 +1,144 @@
+name: Apple · TestFlight
+
+# Builds the Rust core, archives the iPhone/iPad app, the Mac app, or both, at
+# the given version and uploads them to TestFlight via `fastlane ios release`.
+# Run it from the Actions tab. Leave build_number blank and it uses the same
+# scheme as Android's version codes: the UTC date and this run's number that
+# day (e.g. 2026110601). Both platforms in one run share the number; App Store
+# Connect counts each platform's builds separately.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: "Version (CFBundleShortVersionString), e.g. 0.3.4"
+        required: true
+      platforms:
+        description: "Which apps to build"
+        type: choice
+        options: [both, ios, macos]
+        default: both
+      build_number:
+        description: "Build number (blank: today's UTC date and this run's number that day, e.g. 2026110601)"
+        required: false
+        default: ""
+
+concurrency:
+  group: apple-testflight
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  # Counting today's earlier runs for the build number.
+  actions: read
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      name: ${{ steps.pick.outputs.name }}
+      number: ${{ steps.pick.outputs.number }}
+      platforms: ${{ steps.pick.outputs.platforms }}
+    steps:
+      - name: Pick version
+        id: pick
+        env:
+          NAME: ${{ inputs.version_name }}
+          NUMBER: ${{ inputs.build_number }}
+          PLATFORMS: ${{ inputs.platforms }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! printf '%s' "$NAME" | grep -Eq '^[0-9]+(\.[0-9]+){0,2}$'; then
+            echo "::error::version_name must look like 1.2.3 (got '$NAME')"; exit 1
+          fi
+          if [ -z "$NUMBER" ]; then
+            # Same counting as android-internal.yml: runs are queued one at a
+            # time and numbered by creation day, so the suffix only grows.
+            TODAY="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq '.created_at[0:10]')" || {
+              echo "::error::Couldn't read this run; pass build_number instead"; exit 1
+            }
+            EARLIER="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/apple-testflight.yml/runs?created=$TODAY&per_page=100" \
+              --jq "[.workflow_runs[] | select(.id < $GITHUB_RUN_ID)] | length")" || {
+              echo "::error::Couldn't count today's runs; pass build_number instead"; exit 1
+            }
+            N=$((EARLIER + 1))
+            if [ "$N" -gt 99 ]; then echo "::error::Run $N today: past the two-digit limit, pass build_number"; exit 1; fi
+            NUMBER="$(printf '%s' "$TODAY" | tr -d -)$(printf '%02d' "$N")"
+          fi
+          if ! printf '%s' "$NUMBER" | grep -Eq '^[1-9][0-9]*$'; then
+            echo "::error::build_number must be a positive integer (got '$NUMBER')"; exit 1
+          fi
+          case "$PLATFORMS" in
+            both) LIST='["ios","macos"]' ;;
+            ios|macos) LIST="[\"$PLATFORMS\"]" ;;
+            *) echo "::error::platforms must be both, ios or macos"; exit 1 ;;
+          esac
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "number=$NUMBER" >> "$GITHUB_OUTPUT"
+          echo "platforms=$LIST" >> "$GITHUB_OUTPUT"
+          echo "Building $NAME ($NUMBER) for $LIST"
+
+  build:
+    needs: version
+    runs-on: macos-15
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJSON(needs.version.outputs.platforms) }}
+    name: build (${{ matrix.platform }})
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require signing secrets
+        env:
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_SSH_KEY: ${{ secrets.MATCH_GIT_SSH_KEY }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
+        run: |
+          for v in MATCH_PASSWORD MATCH_GIT_SSH_KEY APP_STORE_CONNECT_API_KEY_ID APP_STORE_CONNECT_API_KEY_ISSUER_ID APP_STORE_CONNECT_API_KEY_CONTENT; do
+            if [ -z "${!v}" ]; then echo "::error::Secret $v is not set"; exit 1; fi
+          done
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+
+      - name: Install XcodeGen
+        run: command -v xcodegen >/dev/null || brew install xcodegen
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+
+      # match-certs is cloned over SSH with a read-only deploy key on that repo.
+      - name: Load match-certs deploy key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.MATCH_GIT_SSH_KEY }}
+
+      - name: Build and upload to TestFlight
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          VERSION_NAME: ${{ needs.version.outputs.name }}
+          BUILD_NUMBER: ${{ needs.version.outputs.number }}
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
+          ASC_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
+          MATCH_GIT_URL: git@github.com:MaybeItsSoftware/match-certs.git
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+        run: bundle exec fastlane ios release platform:"$PLATFORM" version_name:"$VERSION_NAME" build_number:"$BUILD_NUMBER"

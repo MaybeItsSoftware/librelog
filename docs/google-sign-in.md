@@ -118,8 +118,8 @@ first of these that is set:
 
 1. Gradle property: `./gradlew -PlibrelogGoogleWebClientId=… …`, or
    `librelogGoogleWebClientId=…` in `~/.gradle/gradle.properties`.
-2. Environment variable `LIBRELOG_GOOGLE_WEB_CLIENT_ID`. The Tramline Android
-   workflow passes the repository secret of that name into the bundle build.
+2. Environment variable `LIBRELOG_GOOGLE_WEB_CLIENT_ID`. The Android · Play
+   internal workflow passes the repository secret of that name into the bundle build.
 3. `librelogGoogleWebClientId=…` in `android/local.properties` (git-ignored).
 
 The id isn't secret (it ships in the app); it stays out of the repo so
