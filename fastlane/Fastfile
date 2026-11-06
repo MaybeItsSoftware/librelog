@@ -13,6 +13,13 @@ ROOT = File.expand_path("..", __dir__)
 def asc_key
   env = ->(short, long) { ENV[short].to_s.empty? ? ENV[long].to_s : ENV[short].to_s }
   content = env.call("ASC_KEY_CONTENT", "APP_STORE_CONNECT_API_KEY_CONTENT")
+  # Locally it's easier to point at the downloaded AuthKey_XXXX.p8.
+  path = env.call("ASC_KEY_PATH", "APP_STORE_CONNECT_API_KEY_PATH")
+  content = File.read(File.expand_path(path)) if content.empty? && !path.empty?
+  missing = { "ASC_KEY_ID" => env.call("ASC_KEY_ID", "APP_STORE_CONNECT_API_KEY_ID"),
+              "ASC_ISSUER_ID" => env.call("ASC_ISSUER_ID", "APP_STORE_CONNECT_API_KEY_ISSUER_ID"),
+              "ASC_KEY_CONTENT or ASC_KEY_PATH" => content }.select { |_, v| v.empty? }.keys
+  UI.user_error!("App Store Connect key not set: #{missing.join(', ')} (or the APP_STORE_CONNECT_API_KEY_* spellings)") unless missing.empty?
   pem = content.include?("BEGIN PRIVATE KEY")
   app_store_connect_api_key(
     key_id: env.call("ASC_KEY_ID", "APP_STORE_CONNECT_API_KEY_ID"),
