@@ -115,6 +115,9 @@ platform :ios do
     build_app(
       project: "#{ROOT}/apple/Librelog.xcodeproj", scheme: "Librelog",
       destination: "generic/platform=#{platform == 'macos' ? 'macOS' : 'iOS'}",
+      # The target is multiplatform; gym only packages a .pkg (not an .ipa)
+      # for one when told the SDK.
+      sdk: platform == "macos" ? "macosx" : "iphoneos",
       export_method: "app-store",
       output_directory: "#{ROOT}/apple/build/#{platform}", clean: true,
       xcargs: "#{version}CURRENT_PROJECT_VERSION=#{number} " \
