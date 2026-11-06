@@ -33,7 +33,7 @@ platform :android do
   # the UTC date and a two-digit number, e.g. 2026102105, higher than any
   # upload that day. Anything below today's date would sit under codes
   # already on Play.
-  desc "Build a signed bundle and put it on the Play internal track as a draft"
+  desc "Build a signed bundle and put it on the Play internal track for testers"
   lane :internal do |opts|
     name = opts[:version_name].to_s
     code = opts[:version_code].to_s
@@ -46,9 +46,9 @@ platform :android do
     sh("cd #{ROOT}/android && ./gradlew -q bundleRelease -PversionCode=#{code} -PversionName=#{name}")
     upload_to_play_store(
       track: "internal",
-      # A draft until rolled out in Play Console; "completed" fails while the
-      # Play app itself is still a draft (never published).
-      release_status: opts[:release_status] || "draft",
+      # Straight to internal testers; pass release_status:draft to hold it
+      # for a manual rollout in Play Console.
+      release_status: opts[:release_status] || "completed",
       aab: "#{ROOT}/android/app/build/outputs/bundle/release/app-release.aab",
       **play_key,
       skip_upload_metadata: true, skip_upload_images: true, skip_upload_screenshots: true,

@@ -103,7 +103,7 @@ Fastlane lanes in `fastlane/Fastfile`; credentials come from the environment
 `android/key.properties` (the shared upload key, git-ignored).
 
 ```sh
-# Play internal track, as a draft. The code is the UTC date and a two-digit
+# Play internal track, straight to testers. The code is the UTC date and a two-digit
 # number above any upload that day, Actions runs included. Local uploads take
 # 90 and up so they stay clear of the workflow's 01, 02, …; after one, give
 # any later Actions run that day an explicit version_code above it.
@@ -115,9 +115,8 @@ Or from GitHub: Actions → **Android · Play internal** → Run workflow, with 
 versionName. Leave versionCode blank and it uses the same scheme, numbering
 that day's runs 01, 02, …; Android version codes must always go up, and the
 ones on Play already are date-based (the last was 2026102002), so never use a
-small number like `2`. It uploads a draft; roll it out to testers in Play
-Console. Choosing `completed` instead fails until the app has been published
-once. It needs `PLAY_STORE_SERVICE_ACCOUNT_JSON`, the same Play key as the
+small number like `2`. It goes straight to internal testers; choose `draft`
+to hold it for a manual rollout in Play Console. It needs `PLAY_STORE_SERVICE_ACCOUNT_JSON`, the same Play key as the
 Takt repo.
 
 ## Open source and hosted sync
